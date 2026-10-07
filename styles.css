@@ -1,0 +1,383 @@
+/* CSV4Obsidian
+   Proportions follow Omni Viewer (13px UI font, 4px 8px cell padding, zebra rows,
+   content-sized columns); the look follows CSV Lite (lettered column headers,
+   numbered rows, whole row/column selection highlight). */
+
+.c4-root {
+	--c4-border: var(--background-modifier-border);
+	--c4-head-bg: var(--background-secondary);
+	--c4-head-hl: var(--background-modifier-hover);
+	--c4-accent: var(--interactive-accent);
+	--c4-sel-bg: rgba(var(--interactive-accent-rgb), 0.12);
+	--c4-sel-head: rgba(var(--interactive-accent-rgb), 0.28);
+	--c4-zebra: var(--background-secondary);
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	padding: 0 !important;
+	font-size: var(--font-ui-small);
+	overflow: hidden;
+}
+
+/* ---------------------------------------------------------------- toolbar */
+.c4-toolbar {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	padding: 6px 8px;
+	border-bottom: 1px solid var(--c4-border);
+	overflow-x: auto;
+	flex: 0 0 auto;
+}
+.c4-sep {
+	width: 1px;
+	height: 18px;
+	background: var(--c4-border);
+	margin: 0 4px;
+	flex: 0 0 auto;
+}
+.c4-grow {
+	flex: 1 1 auto;
+}
+.c4-btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	height: 28px;
+	padding: 0 8px;
+	flex: 0 0 auto;
+	box-shadow: none;
+	background: transparent;
+	color: var(--text-muted);
+	border: 1px solid transparent;
+	border-radius: var(--radius-s);
+	cursor: pointer;
+	font-size: var(--font-ui-small);
+}
+.c4-btn:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+.c4-btn.is-active {
+	background: var(--c4-sel-bg);
+	color: var(--c4-accent);
+}
+.c4-btn.is-disabled {
+	opacity: 0.4;
+	pointer-events: none;
+}
+.c4-btn .svg-icon {
+	width: 16px;
+	height: 16px;
+}
+.c4-btn-text {
+	white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- search */
+.c4-search {
+	padding: 6px 8px;
+	border-bottom: 1px solid var(--c4-border);
+	background: var(--c4-head-bg);
+	flex: 0 0 auto;
+}
+.c4-search-row {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	margin: 2px 0;
+}
+.c4-search-input {
+	flex: 1 1 auto;
+	max-width: 320px;
+	height: 28px;
+	font-size: var(--font-ui-small);
+}
+.c4-count {
+	min-width: 56px;
+	color: var(--text-muted);
+	text-align: center;
+	white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- grid */
+.c4-scroll {
+	position: relative;
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow: auto;
+	outline: none;
+	user-select: none;
+	-webkit-user-select: none;
+}
+.c4-table {
+	border-collapse: separate;
+	border-spacing: 0;
+	table-layout: fixed;
+	font-size: var(--font-ui-small);
+}
+.c4-table th,
+.c4-table td {
+	box-sizing: border-box;
+	height: var(--c4-row-h);
+	padding: 0 8px;
+	border-right: 1px solid var(--c4-border);
+	border-bottom: 1px solid var(--c4-border);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	line-height: calc(var(--c4-row-h) - 1px);
+	text-align: left;
+}
+
+/* column letters + sort arrows */
+.c4-table thead th {
+	position: sticky;
+	top: 0;
+	z-index: 3;
+	background: var(--c4-head-bg);
+	font-weight: 600;
+	color: var(--text-muted);
+	text-align: center;
+	cursor: pointer;
+	padding: 0 18px 0 8px;
+}
+.c4-table thead th:hover {
+	background: var(--c4-head-hl);
+}
+.c4-table thead th.c4-hl {
+	background: linear-gradient(var(--c4-sel-head), var(--c4-sel-head)), var(--c4-head-bg);
+	color: var(--text-normal);
+}
+.c4-table thead th.c4-hl-full {
+	background: var(--c4-accent);
+	color: var(--text-on-accent);
+}
+.c4-ch-label {
+	pointer-events: none;
+}
+.c4-sort {
+	position: absolute;
+	right: 4px;
+	top: 0;
+	width: 16px;
+	text-align: center;
+	font-size: 10px;
+	opacity: 0;
+	cursor: pointer;
+	color: inherit;
+}
+.c4-ch:hover .c4-sort,
+.c4-ch.c4-sorted .c4-sort {
+	opacity: 1;
+}
+.is-mobile .c4-sort {
+	opacity: 0.6;
+}
+.c4-ch.c4-sorted .c4-sort {
+	color: var(--c4-accent);
+}
+.c4-hl-full .c4-sort,
+.c4-hl-full.c4-sorted .c4-sort {
+	color: var(--text-on-accent);
+}
+.c4-resizer {
+	position: absolute;
+	right: -3px;
+	top: 0;
+	bottom: 0;
+	width: 7px;
+	cursor: col-resize;
+	z-index: 4;
+}
+.c4-resizer:hover {
+	background: var(--c4-accent);
+	opacity: 0.4;
+}
+
+/* row numbers */
+.c4-table .c4-rh,
+.c4-table .c4-corner {
+	position: sticky;
+	left: 0;
+	z-index: 2;
+	background: var(--c4-head-bg);
+	color: var(--text-faint);
+	text-align: center;
+	font-weight: 500;
+	cursor: pointer;
+	padding: 0 4px;
+}
+.c4-table .c4-corner {
+	z-index: 5;
+	top: 0;
+}
+.c4-table .c4-rh:hover,
+.c4-table .c4-corner:hover {
+	background: var(--c4-head-hl);
+}
+.c4-table .c4-rh.c4-hl {
+	background: linear-gradient(var(--c4-sel-head), var(--c4-sel-head)), var(--c4-head-bg);
+	color: var(--text-normal);
+}
+.c4-table .c4-rh.c4-hl-full {
+	background: var(--c4-accent);
+	color: var(--text-on-accent);
+}
+
+/* body cells */
+.c4-table .c4-td {
+	background: var(--background-primary);
+	cursor: cell;
+}
+.c4-table tr.c4-odd .c4-td {
+	background: var(--c4-zebra);
+}
+.c4-table .c4-td.c4-num {
+	text-align: right;
+	font-variant-numeric: tabular-nums;
+}
+.c4-table tr.c4-frozen .c4-td {
+	position: sticky;
+	top: var(--c4-row-h);
+	z-index: 1;
+	font-weight: 600;
+	background: var(--c4-head-bg);
+	border-bottom: 2px solid var(--c4-border);
+}
+.c4-table tr.c4-frozen .c4-rh {
+	top: var(--c4-row-h);
+	z-index: 3;
+}
+.c4-spacer td {
+	padding: 0;
+	border: none;
+	background: transparent !important;
+	line-height: 0;
+}
+
+/* selection: tinted body + accent outline drawn edge by edge */
+.c4-table .c4-td {
+	box-shadow:
+		inset 0 var(--c4-t, 0px) 0 0 var(--c4-accent),
+		inset var(--c4-l, 0px) 0 0 0 var(--c4-accent),
+		inset 0 calc(-1 * var(--c4-b, 0px)) 0 0 var(--c4-accent),
+		inset calc(-1 * var(--c4-r, 0px)) 0 0 0 var(--c4-accent);
+}
+.c4-table .c4-td.c4-t { --c4-t: 2px; }
+.c4-table .c4-td.c4-b { --c4-b: 2px; }
+.c4-table .c4-td.c4-l { --c4-l: 2px; }
+.c4-table .c4-td.c4-r { --c4-r: 2px; }
+.c4-table .c4-td.c4-sel {
+	background: linear-gradient(var(--c4-sel-bg), var(--c4-sel-bg)), var(--background-primary);
+}
+.c4-table tr.c4-odd .c4-td.c4-sel {
+	background: linear-gradient(var(--c4-sel-bg), var(--c4-sel-bg)), var(--c4-zebra);
+}
+.c4-table .c4-td.c4-active {
+	--c4-t: 2px;
+	--c4-b: 2px;
+	--c4-l: 2px;
+	--c4-r: 2px;
+	background: var(--background-primary);
+}
+
+/* search highlights */
+.c4-table .c4-td.c4-match {
+	background: rgba(var(--color-yellow-rgb, 255, 208, 0), 0.35);
+}
+.c4-table .c4-td.c4-match-cur {
+	background: rgba(var(--color-orange-rgb, 255, 140, 0), 0.55);
+}
+
+/* inline editor */
+.c4-table .c4-td.c4-editing {
+	padding: 0;
+	overflow: visible;
+	background: var(--background-primary);
+}
+.c4-input {
+	display: block;
+	width: 100%;
+	height: 100%;
+	box-sizing: border-box;
+	margin: 0;
+	padding: 0 8px;
+	border: none !important;
+	border-radius: 0;
+	box-shadow: none !important;
+	background: var(--background-primary) !important;
+	color: var(--text-normal);
+	font: inherit;
+	outline: 2px solid var(--c4-accent);
+	outline-offset: -2px;
+	user-select: text;
+	-webkit-user-select: text;
+}
+
+/* ---------------------------------------------------------------- status bar */
+.c4-status {
+	display: flex;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 3px 10px;
+	border-top: 1px solid var(--c4-border);
+	background: var(--c4-head-bg);
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	flex: 0 0 auto;
+	white-space: nowrap;
+	overflow: hidden;
+}
+.c4-status-r {
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* ---------------------------------------------------------------- statistics */
+.c4-stats-modal {
+	width: min(960px, 94vw);
+}
+.c4-stats-bar {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	margin-bottom: 8px;
+}
+.c4-stats-body {
+	overflow: auto;
+	max-height: 60vh;
+}
+.c4-stats-table {
+	border-collapse: collapse;
+	width: 100%;
+	font-size: var(--font-ui-small);
+}
+.c4-stats-table th,
+.c4-stats-table td {
+	padding: 4px 8px;
+	border: 1px solid var(--background-modifier-border);
+	white-space: nowrap;
+	text-align: left;
+}
+.c4-stats-table thead th {
+	position: sticky;
+	top: 0;
+	background: var(--background-secondary);
+}
+.c4-stats-table tbody tr:nth-child(even) td {
+	background: var(--background-secondary);
+}
+.c4-stats-table .c4-stats-num {
+	text-align: right;
+	font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------- mobile */
+.is-mobile .c4-btn {
+	height: 36px;
+	padding: 0 10px;
+}
+.is-mobile .c4-scroll {
+	-webkit-overflow-scrolling: touch;
+}
