@@ -359,6 +359,10 @@ export class CsvView extends TextFileView {
 		this.undoBtn = this.button(tb, "undo-2", "Undo (Ctrl+Z)", () => this.undo());
 		this.redoBtn = this.button(tb, "redo-2", "Redo (Ctrl+Y)", () => this.redo());
 		tb.createDiv({ cls: "c4-sep" });
+		this.button(tb, "copy", "Copy (Ctrl+C)", () => this.copyToClipboard(false));
+		this.button(tb, "scissors", "Cut (Ctrl+X)", () => this.copyToClipboard(true));
+		this.button(tb, "clipboard-paste", "Paste (Ctrl+V)", () => this.pasteFromClipboard());
+		tb.createDiv({ cls: "c4-sep" });
 		this.button(tb, "search", "Find and replace (Ctrl+F)", () => this.openSearch(false));
 		this.button(tb, "plus", "Insert", (e) => this.insertMenu().showAtMouseEvent(e));
 		this.button(tb, "trash-2", "Delete", (e) => this.deleteMenu().showAtMouseEvent(e));
@@ -767,6 +771,7 @@ export class CsvView extends TextFileView {
 		const menu = new Menu();
 		menu.addItem((i) => i.setTitle("Copy").setIcon("copy").onClick(() => this.copyToClipboard(false)));
 		menu.addItem((i) => i.setTitle("Cut").setIcon("scissors").onClick(() => this.copyToClipboard(true)));
+		menu.addItem((i) => i.setTitle("Paste").setIcon("clipboard-paste").onClick(() => this.pasteFromClipboard()));
 		menu.addItem((i) => i.setTitle("Clear contents").setIcon("eraser").onClick(() => this.clearSelection()));
 		menu.addSeparator();
 		this.fillInsertItems(menu);
@@ -799,6 +804,16 @@ export class CsvView extends TextFileView {
 			if (k === "a") {
 				e.preventDefault();
 				this.selectAll();
+				return;
+			}
+			if (k === "c" || k === "x") {
+				e.preventDefault();
+				this.copyToClipboard(k === "x");
+				return;
+			}
+			if (k === "v") {
+				e.preventDefault();
+				this.pasteFromClipboard();
 				return;
 			}
 			if (k === "f" || k === "h") {
@@ -1091,12 +1106,29 @@ export class CsvView extends TextFileView {
 	private copyToClipboard(cut: boolean) {
 		const text = this.selectionText();
 		if (text === null) return;
-		navigator.clipboard
-			.writeText(text)
+		const R = this.rect();
+		const cells = (R.r1 - R.r0 + 1) * (R.c1 - R.c0 + 1);
+		this.writeClipboard(text)
 			.then(() => {
+				new Notice(`${cut ? "Cut" : "Copied"} ${cells.toLocaleString()} cell${cells > 1 ? "s" : ""}`);
 				if (cut) this.clearSelection();
 			})
 			.catch(() => new Notice("Could not access the clipboard"));
+	}
+
+	private async writeClipboard(text: string): Promise<void> {
+		await navigator.clipboard.writeText(text);
+	}
+
+	private pasteFromClipboard() {
+		if (this.editing) return;
+		navigator.clipboard
+			.readText()
+			.then((text) => {
+				if (text === "") new Notice("The clipboard is empty");
+				else this.pasteText(text);
+			})
+			.catch(() => new Notice("Could not read the clipboard. Allow clipboard access, or use Ctrl+V."));
 	}
 
 	private selectionText(): string | null {
@@ -1125,10 +1157,14 @@ export class CsvView extends TextFileView {
 
 	private onPaste(e: ClipboardEvent) {
 		if (this.editing || !e.clipboardData) return;
-		let text = e.clipboardData.getData("text/plain");
+		const text = e.clipboardData.getData("text/plain");
 		if (text === "") return;
 		e.preventDefault();
-		text = text.replace(/\r\n$|\n$/, "");
+		this.pasteText(text);
+	}
+
+	private pasteText(raw: string) {
+		const text = raw.replace(/\r\n$|\n$/, "");
 		const block = /[\t\n]/.test(text) ? parseCsv(text, "\t") : [[text]];
 		const R = this.rect();
 		const edits: Array<[number, number, string]> = [];

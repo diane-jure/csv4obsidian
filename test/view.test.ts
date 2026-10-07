@@ -8,7 +8,11 @@ const g: any = globalThis;
 for (const k of ["window", "document", "HTMLElement", "Element", "Node", "getComputedStyle", "requestAnimationFrame", "cancelAnimationFrame", "KeyboardEvent", "MouseEvent", "Event", "ClipboardEvent"]) {
 	try { g[k] = (dom.window as any)[k]; } catch { Object.defineProperty(g, k, { value: (dom.window as any)[k], configurable: true }); }
 }
+let clip = "";
+const clipboard = { writeText: async (t: string) => { clip = t; }, readText: async () => clip };
+Object.defineProperty(dom.window.navigator, "clipboard", { value: clipboard, configurable: true });
 Object.defineProperty(g, "navigator", { value: dom.window.navigator, configurable: true });
+const tick = () => new Promise((r) => setTimeout(r, 5));
 installDomHelpers(dom.window);
 g.__notices = []; g.__modals = []; g.__menus = [];
 (dom.window.HTMLCanvasElement.prototype as any).getContext = () => ({ measureText: (s: string) => ({ width: s.length * 7 }), font: "" });
@@ -226,4 +230,51 @@ test("tab/untouched file never rewrites; ragged rows only padded on edit", async
 	const v = await makeView("a\tb\n1\n2\t3\t4\n");
 	assert.equal(v.delimiter, "\t");
 	assert.equal(v.saves, 0);
+});
+
+test("Ctrl+C / Ctrl+X / Ctrl+V work from the keyboard, and the toolbar has Copy / Cut / Paste", async () => {
+	const v = await makeView("a,b,c\n1,2,3\n4,5,6\n7,8,9\n");
+	const labels = [...v.toolbarEl.querySelectorAll("button")].map((b: any) => b.getAttribute("aria-label"));
+	for (const l of ["Copy (Ctrl+C)", "Cut (Ctrl+X)", "Paste (Ctrl+V)"]) assert.ok(labels.includes(l), l);
+
+	v.setSel(1, 0, 2, 1); // 1,2 / 4,5
+	key(v, "c", { ctrlKey: true });
+	await tick();
+	assert.equal(clip, "1\t2\n4\t5");
+	assert.equal(v.grid[1][0], "1", "copy does not modify");
+
+	v.setSel(3, 1); // paste at row 3, col B -> grows? (3 rows of data, so fits: rows 3..4)
+	key(v, "v", { ctrlKey: true });
+	await tick();
+	assert.deepEqual(v.grid.slice(3).map((r: string[]) => r.join("|")), ["7|1|2", "|4|5"]);
+	assert.equal(v.grid.length, 5, "grid grew by one row");
+
+	v.setSel(1, 0, 1, 1);
+	key(v, "x", { metaKey: true }); // Cmd+X on Mac
+	await tick();
+	assert.equal(clip, "1\t2");
+	assert.deepEqual(v.grid[1], ["", "", "3"]);
+	key(v, "z", { ctrlKey: true });
+	assert.deepEqual(v.grid[1], ["1", "2", "3"]);
+
+	// toolbar Paste button + context menu entry
+	clip = "Z";
+	v.setSel(2, 0, 2, 2);
+	[...v.toolbarEl.querySelectorAll("button")].find((b: any) => b.getAttribute("aria-label") === "Paste (Ctrl+V)").click();
+	await tick();
+	assert.deepEqual(v.grid[2], ["Z", "Z", "Z"], "single value fills the selection");
+	g.__menus.length = 0;
+	v.onContextMenu(new dom.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+	v.tbody.querySelector("td.c4-td").dispatchEvent(new dom.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+	const titles = g.__menus[0].items.map((i: any) => i.title);
+	assert.ok(titles.includes("Copy") && titles.includes("Cut") && titles.includes("Paste"), titles.join(","));
+});
+
+test("Excel-style clipboard (CRLF rows, trailing newline) pastes cleanly", async () => {
+	const v = await makeView("a,b\n1,2\n");
+	clip = "x\ty\r\nz\tw\r\n";
+	v.setSel(1, 0);
+	v.pasteFromClipboard();
+	await tick();
+	assert.deepEqual(v.grid, [["a", "b"], ["x", "y"], ["z", "w"]]);
 });

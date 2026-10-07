@@ -1,7 +1,7 @@
 {
 	"id": "csv4obsidian",
 	"name": "CSV4Obsidian",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"minAppVersion": "1.4.0",
 	"description": "A spreadsheet-style CSV/TSV editor: sorting, statistics, find & replace, row/column selection, undo/redo.",
 	"author": "diane-jure",

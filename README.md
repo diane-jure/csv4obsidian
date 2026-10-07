@@ -25,7 +25,8 @@ Open a file and edit it like a spreadsheet: the file is only rewritten when you 
   (`1.5` vs `1,5`) too. Both can be forced per file from the ⚙ menu, and **Convert decimals in selection**
   rewrites `1,5` ⇄ `1.5`.
 - **Insert / delete rows and columns** from the toolbar or the right-click menu (as many as are selected).
-- **Copy / cut / paste** – compatible with Excel, Google Sheets and LibreOffice (tab-separated).
+- **Copy / cut / paste** – `Ctrl/Cmd+C/X/V`, toolbar buttons (also on mobile) and the right-click menu. Compatible with Excel,
+  Google Sheets and LibreOffice (tab-separated). Pasting a single value over a selection fills it; a block grows the table if needed.
 - **Large files** – only the visible rows are rendered; columns are sized to their content (64–480 px), drag a
   column border to resize it, double-click it to fit.
 - Frozen first row (header), row zebra striping, right-aligned numbers.
