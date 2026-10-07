@@ -12,7 +12,11 @@ import {
 	detectDecimal,
 	insertCols,
 	insertRows,
+	mapMovedIndex,
+	moveCols,
+	moveRange,
 	parseNumber,
+	refText,
 } from "../src/ops";
 import { columnStats } from "../src/stats";
 
@@ -124,4 +128,30 @@ test("column statistics", () => {
 	assert.equal(v.min, 1);
 	assert.equal(v.max, 8);
 	assert.ok(Math.abs((v.stdev as number) - Math.sqrt(13)) < 1e-9);
+});
+
+test("moveRange / moveCols / mapMovedIndex", () => {
+	const a = ["a", "b", "c", "d", "e"];
+	assert.deepEqual(moveRange(a, 1, 2, 5), { arr: ["a", "d", "e", "b", "c"], at: 3 });
+	assert.deepEqual(moveRange(a, 1, 2, 0), { arr: ["b", "c", "a", "d", "e"], at: 0 });
+	assert.deepEqual(moveRange(a, 3, 1, 1), { arr: ["a", "d", "b", "c", "e"], at: 1 });
+	assert.deepEqual(moveRange(a, 0, 1, 2).arr, ["b", "a", "c", "d", "e"]);
+	assert.deepEqual(a, ["a", "b", "c", "d", "e"], "input untouched");
+	// every old index maps to where the value really went
+	for (const [from, count, ins] of [[1, 2, 5], [1, 2, 0], [3, 1, 1], [0, 1, 2], [4, 1, 0], [0, 2, 5]] as const) {
+		const { arr } = moveRange(a, from, count, ins);
+		a.forEach((v, i) => assert.equal(arr[mapMovedIndex(i, from, count, ins)], v, `${from},${count},${ins} idx ${i}`));
+	}
+	const g = [["a", "b", "c"], ["1", "2", "3"]];
+	assert.deepEqual(moveCols(g, 0, 1, 3), { grid: [["b", "c", "a"], ["2", "3", "1"]], at: 2 });
+	assert.deepEqual(moveRange(g, 0, 1, 2).arr, [g[1], g[0]]);
+});
+
+test("refText", () => {
+	const R = (r0: number, r1: number, c0: number, c1: number) => ({ r0, r1, c0, c1 });
+	assert.equal(refText(R(11, 11, 1, 1), 100, 5), "B12");
+	assert.equal(refText(R(2, 8, 1, 3), 100, 5), "B3:D9");
+	assert.equal(refText(R(0, 99, 1, 3), 100, 5), "B:D");
+	assert.equal(refText(R(2, 4, 0, 4), 100, 5), "3:5");
+	assert.equal(refText(R(0, 99, 0, 4), 100, 5), "A1:E100");
 });

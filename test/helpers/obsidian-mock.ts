@@ -6,6 +6,7 @@ declare global {
 		createSpan(o?: any): HTMLElement;
 		empty(): void;
 		addClass(...c: string[]): void;
+		removeClass(...c: string[]): void;
 		toggleClass(c: string, on: boolean): void;
 		hide(): void;
 		show(): void;
@@ -29,6 +30,7 @@ export function installDomHelpers(win: any) {
 	P.createSpan = function (o?: any) { return this.createEl("span", o); };
 	P.empty = function () { this.replaceChildren(); };
 	P.addClass = function (...c: string[]) { this.classList.add(...c); };
+	P.removeClass = function (...c: string[]) { this.classList.remove(...c); };
 	P.toggleClass = function (c: string, on: boolean) { this.classList.toggle(c, on); };
 	P.hide = function () { this.style.display = "none"; };
 	P.show = function () { this.style.display = ""; };

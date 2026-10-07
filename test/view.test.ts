@@ -278,3 +278,113 @@ test("Excel-style clipboard (CRLF rows, trailing newline) pastes cleanly", async
 	await tick();
 	assert.deepEqual(v.grid, [["a", "b"], ["x", "y"], ["z", "w"]]);
 });
+
+test("content bar shows reference + full content, and edits the active cell", async () => {
+	const long = "a very long value ".repeat(20).trim();
+	const v = await makeView(`name,note\nbeta,"${long}"\nalpha,x\n`);
+	assert.equal(v.fxRef.textContent, "A1");
+	v.setSel(1, 1);
+	assert.equal(v.fxRef.textContent, "B2");
+	assert.equal(v.fxInput.value, long, "full content, not truncated");
+	v.setSel(1, 0, 2, 1);
+	assert.equal(v.fxRef.textContent, "2:3", "whole rows");
+	assert.equal(v.fxInput.value, "beta", "anchor cell");
+	v.setSel(1, 0, 2, 0);
+	assert.equal(v.fxRef.textContent, "A2:A3");
+	v.setSel(0, 1, 2, 1);
+	assert.equal(v.fxRef.textContent, "B:B");
+
+	// edit through the bar: focus, type, Enter -> committed to the active cell, moves down
+	v.setSel(2, 0);
+	v.fxInput.dispatchEvent(new dom.window.Event("focus"));
+	v.fxInput.value = "ALPHA";
+	v.fxInput.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+	assert.equal(v.grid[2][0], "ALPHA");
+	assert.equal(v.fxActive, false);
+	// Escape reverts
+	v.setSel(1, 0);
+	v.fxInput.dispatchEvent(new dom.window.Event("focus"));
+	v.fxInput.value = "nope";
+	v.fxInput.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+	assert.equal(v.grid[1][0], "beta");
+	assert.equal(v.fxInput.value, "beta");
+	// typing in the cell is mirrored in the bar
+	v.setSel(1, 0);
+	key(v, "q");
+	assert.equal(v.fxInput.value, "q");
+	v.input.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+	assert.equal(v.grid[1][0], "beta");
+	// clicking another cell while the bar is being edited commits to the *previous* cell
+	v.setSel(1, 0);
+	v.fxInput.dispatchEvent(new dom.window.Event("focus"));
+	v.fxInput.value = "BETA";
+	click(v.cellEl(2, 1), "pointerdown");
+	v.onDragEnd();
+	assert.equal(v.grid[1][0], "BETA");
+	assert.equal(v.grid[2][1], "x");
+});
+
+test("editing never alters multi-line / CRLF cells unless the text really changes", async () => {
+	const v = await makeView('a,b\r\n"line1\r\nline2",x\r\n');
+	assert.equal(v.newline, "\r\n");
+	assert.equal(v.grid[1][0], "line1\r\nline2");
+	v.setSel(1, 0);
+	key(v, "F2");
+	assert.ok(v.editing);
+	v.input.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+	assert.equal(v.grid[1][0], "line1\r\nline2", "unchanged");
+	assert.equal(v.saves, 0, "nothing saved");
+	// Alt+Enter inserts a line break while editing
+	v.setSel(1, 1);
+	key(v, "F2");
+	v.input.value = "x";
+	v.input.setSelectionRange(1, 1);
+	v.input.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", altKey: true, bubbles: true, cancelable: true }));
+	assert.equal(v.input.value, "x\n");
+	v.input.value = "x\ny";
+	v.input.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+	assert.equal(v.grid[1][1], "x\ny");
+});
+
+test("move handles: present on headers and rows (not on the frozen row)", async () => {
+	const v = await makeView(CSV);
+	assert.equal(v.tableEl.querySelectorAll("thead .c4-grip-c").length, 3);
+	assert.equal(v.tbody.querySelector('tr[data-r="0"] .c4-grip'), null, "frozen header row has no grip");
+	assert.equal(v.tbody.querySelectorAll(".c4-grip-r").length, 3);
+});
+
+test("move columns: data, widths and sort follow; undoable", async () => {
+	const v = await makeView(CSV); // name,qty,price
+	v.colW = [100, 200, 300];
+	v.toggleSort(1); // sort by qty (column 1)
+	v.moveColumnsTo(0, 1, 3); // move 'name' to the end
+	assert.deepEqual(v.grid[0], ["qty", "price", "name"]);
+	assert.deepEqual(v.colW, [200, 300, 100]);
+	assert.equal(v.sort.col, 0, "sort still on qty");
+	assert.deepEqual(v.rect(), { r0: 0, r1: 3, c0: 2, c1: 2 }, "moved column is selected");
+	assert.equal(v.grid[1][2], "beta");
+	key(v, "z", { ctrlKey: true });
+	assert.deepEqual(v.grid[0], ["name", "qty", "price"]);
+	assert.equal(v.sort.col, 1);
+	// move two selected columns to the front
+	v.setSel(0, 1, 3, 2);
+	v.moveColumnsTo(1, 2, 0);
+	assert.deepEqual(v.grid[0], ["qty", "price", "name"]);
+});
+
+test("move rows: moves, keeps header on top, blocked while sorted", async () => {
+	const v = await makeView(CSV); // header + beta, alpha, gamma
+	v.moveRowsTo(1, 1, 4); // beta to the end
+	assert.deepEqual(v.grid.map((r: string[]) => r[0]), ["name", "alpha", "gamma", "beta"]);
+	assert.deepEqual(v.rect(), { r0: 3, r1: 3, c0: 0, c1: 2 });
+	v.moveRowsTo(1, 1, 0); // would pass the frozen header -> refused
+	assert.equal(v.grid[0][0], "name");
+	v.moveRowsTo(0, 1, 3); // moving the header itself -> refused
+	assert.equal(v.grid[0][0], "name");
+	v.moveRowsTo(2, 2, 1); // two rows up, together
+	assert.deepEqual(v.grid.map((r: string[]) => r[0]), ["name", "gamma", "beta", "alpha"]);
+	v.toggleSort(0);
+	v.moveRowsTo(1, 1, 3);
+	assert.deepEqual(v.grid.map((r: string[]) => r[0]), ["name", "gamma", "beta", "alpha"], "ignored while sorted");
+	assert.ok(v.tbody.querySelector(".c4-grip-off"), "grips are dimmed while sorted");
+});

@@ -5,6 +5,13 @@ Open a file and edit it like a spreadsheet: the file is only rewritten when you 
 
 ## Features
 
+- **Content bar** – like Excel's formula bar: shows the reference of the active cell (`B12`, `B3:D9`, `B:D`, `3:5`)
+  and its *full* content across the whole width. Click in it to edit the cell (`Enter` validates, `Esc` cancels,
+  `Alt+Enter` adds a line break); the ⌄ button expands it for long or multi-line text.
+- **Move rows & columns** – a small grip appears on a column header / row number (always visible once the column or row
+  is selected, and on mobile). Drag it to move the column or row; a line shows where it will land, the table scrolls near
+  the edges, and everything selected moves together. A plain click on the grip selects the column/row. Undoable.
+  Rows can't be moved while a sort is active (apply or clear it first) and the frozen first row stays put.
 - **Edit in place** – double-click, `Enter` or `F2` to edit a cell; just start typing to replace it.
   `Enter` / `Tab` commit and move (add `Shift` to go backwards). `Esc` cancels.
 - **Select like a spreadsheet** – click a column letter or a row number to select the whole column/row,

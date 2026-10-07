@@ -174,3 +174,47 @@ export function computeOrder(g: Grid, spec: SortSpec | null, frozenFirst: boolea
 	});
 	return frozenFirst ? idx.slice(0, 1).concat(body) : body;
 }
+
+// ---------------------------------------------------------------- moving
+
+/**
+ * Move `count` items starting at `from` so they land before original index `ins`
+ * (an insertion point 0..length). Returns the new array and where the block starts.
+ */
+export function moveRange<T>(arr: T[], from: number, count: number, ins: number): { arr: T[]; at: number } {
+	const block = arr.slice(from, from + count);
+	const rest = arr.slice(0, from).concat(arr.slice(from + count));
+	const at = ins > from ? ins - count : ins;
+	return { arr: rest.slice(0, at).concat(block, rest.slice(at)), at };
+}
+
+export function moveCols(g: Grid, from: number, count: number, ins: number): { grid: Grid; at: number } {
+	let at = from;
+	const grid = g.map((r) => {
+		const m = moveRange(r, from, count, ins);
+		at = m.at;
+		return m.arr;
+	});
+	return { grid, at };
+}
+
+/** Where the item that used to be at index `i` ends up after moveRange(from, count, ins). */
+export function mapMovedIndex(i: number, from: number, count: number, ins: number): number {
+	const at = ins > from ? ins - count : ins;
+	if (i >= from && i < from + count) return at + (i - from);
+	const restIdx = i < from ? i : i - count;
+	return restIdx >= at ? restIdx + count : restIdx;
+}
+
+/** Human readable reference of a selection: B3, B3:D9, B:D (whole columns), 3:5 (whole rows). */
+export function refText(R: Rect, totalRows: number, totalCols: number): string {
+	const a = colLabel(R.c0);
+	const b = colLabel(R.c1);
+	if (R.r0 === R.r1 && R.c0 === R.c1) return `${a}${R.r0 + 1}`;
+	const fullCols = R.r0 === 0 && R.r1 === totalRows - 1;
+	const fullRows = R.c0 === 0 && R.c1 === totalCols - 1;
+	if (fullCols && fullRows) return `A1:${colLabel(totalCols - 1)}${totalRows}`;
+	if (fullCols) return `${a}:${b}`;
+	if (fullRows) return `${R.r0 + 1}:${R.r1 + 1}`;
+	return `${a}${R.r0 + 1}:${b}${R.r1 + 1}`;
+}

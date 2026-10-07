@@ -16,7 +16,11 @@ import {
 	formatNumber,
 	insertCols,
 	insertRows,
+	mapMovedIndex,
+	moveCols,
+	moveRange,
 	parseNumber,
+	refText,
 } from "./ops";
 import { columnStats } from "./stats";
 import { ConfirmModal, StatsModal, StatsScope } from "./modals";
@@ -84,7 +88,28 @@ export class CsvView extends TextFileView {
 	private scrollEl!: HTMLElement;
 	private tableEl!: HTMLElement;
 	private tbody!: HTMLElement;
-	private input!: HTMLInputElement;
+	private input!: HTMLTextAreaElement;
+	private fxEl!: HTMLElement;
+	private fxRef!: HTMLElement;
+	private fxInput!: HTMLTextAreaElement;
+	private fxActive = false;
+	private dropEl!: HTMLElement;
+	private moveState: {
+		kind: "col" | "row";
+		idx: number;
+		from: number;
+		count: number;
+		ins: number;
+		valid: boolean;
+		blocked: boolean;
+		moved: boolean;
+		shift: boolean;
+		startX: number;
+		startY: number;
+		lastX: number;
+		lastY: number;
+		raf: number;
+	} | null = null;
 	private statusL!: HTMLElement;
 	private statusR!: HTMLElement;
 	private rnW = 48;
@@ -308,6 +333,7 @@ export class CsvView extends TextFileView {
 		root.style.setProperty("--c4-row-h", ROW_H + "px");
 
 		this.buildToolbar(root);
+		this.buildFx(root);
 		this.buildSearch(root);
 
 		this.scrollEl = root.createDiv({ cls: "c4-scroll", attr: { tabindex: "0" } });
@@ -316,9 +342,18 @@ export class CsvView extends TextFileView {
 		this.statusL = status.createSpan();
 		this.statusR = status.createSpan({ cls: "c4-status-r" });
 
-		this.input = document.createElement("input");
+		this.dropEl = this.scrollEl.createDiv({ cls: "c4-drop" });
+		this.dropEl.hide();
+
+		// A textarea (not an input) so cells that contain line breaks are never altered by editing.
+		this.input = document.createElement("textarea");
 		this.input.className = "c4-input";
+		this.input.rows = 1;
+		this.input.wrap = "off";
 		this.input.spellcheck = false;
+		this.input.addEventListener("input", () => {
+			if (!this.fxActive) this.fxInput.value = this.input.value;
+		});
 		this.input.addEventListener("keydown", (e) => this.onInputKey(e));
 		this.input.addEventListener("blur", () => this.onInputBlur());
 		this.input.addEventListener("pointerdown", (e) => e.stopPropagation());
@@ -341,6 +376,9 @@ export class CsvView extends TextFileView {
 		cancelAnimationFrame(this.rafId);
 		document.removeEventListener("pointermove", this.onDragMove);
 		document.removeEventListener("pointerup", this.onDragEnd);
+		document.removeEventListener("pointermove", this.onMoveDrag);
+		document.removeEventListener("pointerup", this.onMoveEnd);
+		if (this.moveState) cancelAnimationFrame(this.moveState.raf);
 	}
 
 	private button(parent: HTMLElement, icon: string, label: string, fn: (e: MouseEvent) => void, text?: string) {
@@ -412,6 +450,8 @@ export class CsvView extends TextFileView {
 				attr: { title: "Sort this column" },
 			});
 			th.createDiv({ cls: "c4-resizer", attr: { title: "Drag to resize, double-click to fit" } });
+			const gc = th.createDiv({ cls: "c4-grip c4-grip-c", attr: { title: "Drag to move column(s), click to select" } });
+			gc.dataset.kind = "col";
 		}
 		this.tbody = table.createEl("tbody");
 		this.renderBody(keepTop);
@@ -470,6 +510,13 @@ export class CsvView extends TextFileView {
 		const rh = document.createElement("th");
 		rh.className = "c4-rh";
 		rh.textContent = String(dr + 1);
+		if (!frozen) {
+			const grip = document.createElement("div");
+			grip.className = "c4-grip c4-grip-r" + (this.sort ? " c4-grip-off" : "");
+			grip.dataset.kind = "row";
+			grip.title = this.sort ? "Rows can't be moved while a sort is active" : "Drag to move row(s), click to select";
+			rh.appendChild(grip);
+		}
 		tr.appendChild(rh);
 		for (let c = 0; c < row.length; c++) {
 			const v = row[c];
@@ -547,6 +594,7 @@ export class CsvView extends TextFileView {
 
 	private updateStatus() {
 		if (!this.statusL) return;
+		this.updateFx();
 		const R = this.rect();
 		const cells = (R.r1 - R.r0 + 1) * (R.c1 - R.c0 + 1);
 		const dataRows = this.nRows() - (this.freeze ? 1 : 0);
@@ -664,8 +712,14 @@ export class CsvView extends TextFileView {
 	// ------------------------------------------------------------------ pointer events
 
 	private onPointerDown(e: PointerEvent) {
+		this.commitFxIfAny();
 		this.lastPointer = e.pointerType;
 		const t = e.target as HTMLElement;
+		const grip = t.closest(".c4-grip") as HTMLElement | null;
+		if (grip) {
+			this.startMove(e, grip);
+			return;
+		}
 		if (t.closest(".c4-resizer")) {
 			this.startResize(e, t.closest(".c4-ch") as HTMLElement);
 			return;
@@ -936,6 +990,7 @@ export class CsvView extends TextFileView {
 		td.textContent = "";
 		td.appendChild(this.input);
 		this.input.value = initial ?? this.cell(r, c);
+		this.fxInput.value = this.input.value;
 		this.input.focus();
 		const end = this.input.value.length;
 		this.input.setSelectionRange(end, end);
@@ -943,7 +998,10 @@ export class CsvView extends TextFileView {
 
 	private onInputKey(e: KeyboardEvent) {
 		e.stopPropagation();
-		if (e.key === "Enter") {
+		if (e.key === "Enter" && e.altKey) {
+			e.preventDefault();
+			this.insertNewline(this.input);
+		} else if (e.key === "Enter") {
 			e.preventDefault();
 			this.finishEdit(true, e.shiftKey ? [-1, 0] : [1, 0]);
 		} else if (e.key === "Tab") {
@@ -975,11 +1033,243 @@ export class CsvView extends TextFileView {
 			this.input.remove();
 			td.textContent = this.cell(ed.r, ed.c);
 		}
-		if (save && value !== this.cell(ed.r, ed.c)) {
+		if (save && !sameText(value, this.cell(ed.r, ed.c))) {
 			this.commit(applyEdits(this.grid, [[this.dataRow(ed.r), ed.c, value]]));
+		} else {
+			this.updateFx();
 		}
 		if (step) this.move(step[0], step[1], false);
 		this.scrollEl.focus({ preventScroll: true });
+	}
+
+	// ------------------------------------------------------------------ content bar
+
+	private buildFx(root: HTMLElement) {
+		const bar = (this.fxEl = root.createDiv({ cls: "c4-fx" }));
+		this.fxRef = bar.createDiv({ cls: "c4-fx-ref", text: "A1" });
+		this.fxInput = bar.createEl("textarea", {
+			cls: "c4-fx-input",
+			attr: { rows: "1", spellcheck: "false", wrap: "off", "aria-label": "Content of the active cell" },
+		});
+		this.button(bar, "chevron-down", "Show more / less", () => {
+			const open = bar.classList.toggle("c4-fx-open");
+			this.fxInput.wrap = open ? "soft" : "off";
+		});
+
+		this.fxInput.addEventListener("focus", () => {
+			this.commitEditIfAny();
+			this.fxActive = true;
+		});
+		this.fxInput.addEventListener("blur", () => this.finishFx(true));
+		this.fxInput.addEventListener("keydown", (e) => {
+			e.stopPropagation();
+			if (e.key === "Enter" && e.altKey) {
+				e.preventDefault();
+				this.insertNewline(this.fxInput);
+			} else if (e.key === "Enter") {
+				e.preventDefault();
+				this.finishFx(true, e.shiftKey ? [-1, 0] : [1, 0]);
+			} else if (e.key === "Tab") {
+				e.preventDefault();
+				this.finishFx(true, e.shiftKey ? [0, -1] : [0, 1]);
+			} else if (e.key === "Escape") {
+				e.preventDefault();
+				this.finishFx(false);
+			}
+		});
+	}
+
+	private insertNewline(ta: HTMLTextAreaElement) {
+		ta.setRangeText("\n", ta.selectionStart, ta.selectionEnd, "end");
+		ta.dispatchEvent(new Event("input"));
+	}
+
+	/** Show the active cell's full content (and its reference) in the bar. */
+	private updateFx() {
+		if (!this.fxEl) return;
+		this.fxRef.setText(refText(this.rect(), this.nRows(), this.nCols()));
+		if (!this.fxActive && !this.editing) this.fxInput.value = this.cell(this.sel.ar, this.sel.ac);
+	}
+
+	private commitFxIfAny() {
+		if (this.fxActive) this.finishFx(true);
+	}
+
+	private finishFx(save: boolean, step?: [number, number]) {
+		if (!this.fxActive) return;
+		this.fxActive = false;
+		const { ar: r, ac: c } = this.sel;
+		const value = this.fxInput.value;
+		if (save && !sameText(value, this.cell(r, c))) {
+			this.commit(applyEdits(this.grid, [[this.dataRow(r), c, value]]));
+		} else {
+			this.updateFx();
+		}
+		if (step) this.move(step[0], step[1], false);
+		if (document.activeElement === this.fxInput) this.scrollEl.focus({ preventScroll: true });
+	}
+
+	// ------------------------------------------------------------------ moving rows & columns
+
+	private startMove(e: PointerEvent, grip: HTMLElement) {
+		if (e.pointerType === "mouse" && e.button !== 0) return;
+		e.preventDefault();
+		this.commitEditIfAny();
+		const kind = grip.dataset.kind === "row" ? "row" : "col";
+		const idx = kind === "col" ? Number((grip.closest(".c4-ch") as HTMLElement).dataset.c) : Number((grip.closest("tr") as HTMLElement).dataset.r);
+		// Dragging a selected column/row drags the whole selection.
+		const R = this.rect();
+		let from = idx;
+		let count = 1;
+		if (kind === "col" && R.r0 === 0 && R.r1 === this.nRows() - 1 && idx >= R.c0 && idx <= R.c1) {
+			from = R.c0;
+			count = R.c1 - R.c0 + 1;
+		} else if (kind === "row" && R.c0 === 0 && R.c1 === this.nCols() - 1 && idx >= R.r0 && idx <= R.r1 && !(this.freeze && R.r0 === 0)) {
+			from = R.r0;
+			count = R.r1 - R.r0 + 1;
+		}
+		this.moveState = {
+			kind,
+			idx,
+			from,
+			count,
+			ins: -1,
+			valid: false,
+			blocked: kind === "row" && !!this.sort,
+			moved: false,
+			shift: e.shiftKey,
+			startX: e.clientX,
+			startY: e.clientY,
+			lastX: e.clientX,
+			lastY: e.clientY,
+			raf: 0,
+		};
+		document.addEventListener("pointermove", this.onMoveDrag);
+		document.addEventListener("pointerup", this.onMoveEnd);
+	}
+
+	private onMoveDrag = (e: PointerEvent) => {
+		const st = this.moveState;
+		if (!st) return;
+		st.lastX = e.clientX;
+		st.lastY = e.clientY;
+		if (!st.moved) {
+			if (Math.hypot(e.clientX - st.startX, e.clientY - st.startY) < 4) return;
+			st.moved = true;
+			this.contentEl.addClass("c4-moving");
+			if (!st.blocked) {
+				if (st.kind === "col") this.setSel(0, st.from, this.nRows() - 1, st.from + st.count - 1, false);
+				else this.setSel(st.from, 0, st.from + st.count - 1, this.nCols() - 1, false);
+			}
+			st.raf = requestAnimationFrame(this.autoScrollTick);
+		}
+		this.updateDrop();
+	};
+
+	private autoScrollTick = () => {
+		const st = this.moveState;
+		if (!st) return;
+		const box = this.scrollEl.getBoundingClientRect();
+		let moved = false;
+		if (st.kind === "col") {
+			let dx = 0;
+			if (st.lastX > box.right - 48) dx = 16;
+			else if (st.lastX < box.left + this.rnW + 24) dx = -16;
+			if (dx) {
+				this.scrollEl.scrollLeft += dx;
+				moved = true;
+			}
+		} else {
+			let dy = 0;
+			if (st.lastY > box.bottom - 48) dy = 20;
+			else if (st.lastY < box.top + ROW_H * 2 + 16) dy = -20;
+			if (dy) {
+				this.scrollEl.scrollTop += dy;
+				moved = true;
+			}
+		}
+		if (moved) this.updateDrop();
+		st.raf = requestAnimationFrame(this.autoScrollTick);
+	};
+
+	/** Work out the insertion point under the pointer and draw the drop line. */
+	private updateDrop() {
+		const st = this.moveState;
+		if (!st || st.blocked) return;
+		const box = this.scrollEl.getBoundingClientRect();
+		let ins: number;
+		if (st.kind === "col") {
+			const x = st.lastX - box.left + this.scrollEl.scrollLeft - this.rnW;
+			ins = this.nCols();
+			let acc = 0;
+			for (let c = 0; c < this.nCols(); c++) {
+				if (x < acc + this.colW[c] / 2) {
+					ins = c;
+					break;
+				}
+				acc += this.colW[c];
+			}
+		} else {
+			const y = st.lastY - box.top + this.scrollEl.scrollTop - ROW_H;
+			ins = this.clamp(Math.round(y / ROW_H), this.freeze ? 1 : 0, this.nRows());
+		}
+		st.ins = ins;
+		st.valid = ins < st.from || ins > st.from + st.count;
+		if (!st.valid) {
+			this.dropEl.hide();
+			return;
+		}
+		const d = this.dropEl;
+		d.show();
+		if (st.kind === "col") {
+			let left = this.rnW;
+			for (let c = 0; c < ins; c++) left += this.colW[c];
+			d.className = "c4-drop c4-drop-v";
+			d.style.cssText = `left:${left - 1}px;top:0;height:${this.tableEl.offsetHeight}px`;
+		} else {
+			d.className = "c4-drop c4-drop-h";
+			d.style.cssText = `top:${ROW_H * (1 + ins) - 1}px;left:0;width:${this.tableEl.offsetWidth}px`;
+		}
+	}
+
+	private onMoveEnd = () => {
+		document.removeEventListener("pointermove", this.onMoveDrag);
+		document.removeEventListener("pointerup", this.onMoveEnd);
+		const st = this.moveState;
+		this.moveState = null;
+		this.dropEl.hide();
+		this.contentEl.removeClass("c4-moving");
+		if (!st) return;
+		cancelAnimationFrame(st.raf);
+		if (!st.moved) {
+			// a plain click on the grip selects the whole column / row
+			this.applyHit(st.kind === "col" ? { kind: "col", c: st.idx } : { kind: "row", r: st.idx }, st.shift);
+			return;
+		}
+		if (st.blocked) {
+			new Notice("Rows can't be moved while a sort is active. Use Sort → Apply sort to file (or clear the sort) first.");
+			return;
+		}
+		if (!st.valid) return;
+		if (st.kind === "col") this.moveColumnsTo(st.from, st.count, st.ins);
+		else this.moveRowsTo(st.from, st.count, st.ins);
+	};
+
+	moveColumnsTo(from: number, count: number, ins: number) {
+		const { grid, at } = moveCols(this.grid, from, count, ins);
+		const extra: { sort?: SortSpec | null; colW: number[]; sel: Sel } = {
+			colW: moveRange(this.colW, from, count, ins).arr,
+			sel: { ar: 0, ac: at, fr: this.nRows() - 1, fc: at + count - 1 },
+		};
+		if (this.sort) extra.sort = { ...this.sort, col: mapMovedIndex(this.sort.col, from, count, ins) };
+		this.commit(grid, extra);
+	}
+
+	moveRowsTo(from: number, count: number, ins: number) {
+		if (this.sort) return;
+		if (this.freeze && (from === 0 || ins < 1)) return;
+		const { arr, at } = moveRange(this.grid, from, count, ins);
+		this.commit(arr, { sel: { ar: at, ac: 0, fr: at + count - 1, fc: this.nCols() - 1 } });
 	}
 
 	// ------------------------------------------------------------------ edit operations
@@ -1469,3 +1759,7 @@ export class CsvView extends TextFileView {
 	}
 }
 
+/** Equal, ignoring the CR/LF normalisation a textarea applies to its value. */
+function sameText(a: string, b: string): boolean {
+	return a === b || a.replace(/\r\n?/g, "\n") === b.replace(/\r\n?/g, "\n");
+}
