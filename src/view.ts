@@ -940,7 +940,8 @@ export class CsvView extends TextFileView {
 			case "Delete":
 			case "Backspace":
 				e.preventDefault();
-				this.clearSelection();
+				if (mod) this.deleteWholeSelection();
+				else this.clearSelection();
 				return;
 			case "Escape":
 				if (this.searchOpen) this.closeSearch();
@@ -1297,6 +1298,14 @@ export class CsvView extends TextFileView {
 			this.commit(next);
 		};
 		this.confirmThen(this.coversWholeTable(R), "Clear the contents of the whole table? You can undo this.", "Clear all", run);
+	}
+
+	/** Cmd/Ctrl+Backspace: delete the selected row(s) or column(s) when they are selected in full. */
+	private deleteWholeSelection() {
+		const R = this.rect();
+		if (R.c0 === 0 && R.c1 === this.nCols() - 1) this.deleteSelectedRows();
+		else if (R.r0 === 0 && R.r1 === this.nRows() - 1) this.deleteSelectedCols();
+		else this.clearSelection();
 	}
 
 	private deleteSelectedRows() {

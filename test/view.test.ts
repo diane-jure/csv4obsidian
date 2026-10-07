@@ -388,3 +388,43 @@ test("move rows: moves, keeps header on top, blocked while sorted", async () => 
 	assert.deepEqual(v.grid.map((r: string[]) => r[0]), ["name", "gamma", "beta", "alpha"], "ignored while sorted");
 	assert.ok(v.tbody.querySelector(".c4-grip-off"), "grips are dimmed while sorted");
 });
+
+test("Cmd/Ctrl+Backspace deletes whole selected rows or columns", async () => {
+	const v = await makeView("a,b,c\n1,2,3\n4,5,6\n7,8,9\n");
+	// whole row selected (click on its number) -> row removed
+	click(v.tbody.querySelector('tr[data-r="2"] .c4-rh'));
+	v.onDragEnd();
+	key(v, "Backspace", { metaKey: true });
+	assert.deepEqual(v.grid.map((r: string[]) => r[0]), ["a", "1", "7"]);
+	// two whole columns selected -> both removed
+	v.setSel(0, 0, v.nRows() - 1, 1);
+	key(v, "Backspace", { metaKey: true });
+	assert.deepEqual(v.grid[0], ["c"]);
+	assert.equal(v.nCols(), 1);
+	// undo brings everything back
+	key(v, "z", { metaKey: true });
+	key(v, "z", { metaKey: true });
+	assert.equal(v.grid.length, 4);
+	assert.equal(v.nCols(), 3);
+	// partial selection: only clears the cells (never removes rows/columns)
+	v.setSel(1, 1, 2, 2);
+	key(v, "Backspace", { metaKey: true });
+	assert.equal(v.grid.length, 4);
+	assert.deepEqual(v.grid[1], ["1", "", ""]);
+	// plain Backspace on a whole row still just clears it
+	const w = await makeView("a,b\n1,2\n3,4\n");
+	click(w.tbody.querySelector('tr[data-r="1"] .c4-rh'));
+	w.onDragEnd();
+	key(w, "Backspace");
+	assert.equal(w.grid.length, 3);
+	assert.deepEqual(w.grid[1], ["", ""]);
+	// whole table + Cmd+Backspace asks for confirmation before deleting every row
+	const x = await makeView("a,b\n1,2\n");
+	g.__modals.length = 0;
+	key(x, "a", { ctrlKey: true });
+	key(x, "Backspace", { ctrlKey: true });
+	assert.equal(g.__modals.length, 1);
+	assert.equal(x.grid.length, 2);
+	g.__modals[0].contentEl.querySelector("button.mod-warning").click();
+	assert.deepEqual(x.grid, [["", ""]]);
+});

@@ -45,6 +45,7 @@ Open a file and edit it like a spreadsheet: the file is only rewritten when you 
 | Arrows, `Tab`, `Home`, `End`, `PageUp/Down` | Move (`Shift` extends, `Ctrl/Cmd` jumps to the edge) |
 | `Enter`, `F2`, or start typing | Edit the active cell |
 | `Delete`, `Backspace` | Clear selected cells |
+| `Cmd/Ctrl` + `Backspace` | Delete the selected row(s) / column(s) when selected in full (otherwise clears) |
 | `Ctrl/Cmd` + `A` / `C` / `X` / `V` | Select all / copy / cut / paste |
 | `Ctrl/Cmd` + `Z` / `Y` | Undo / redo |
 | `Ctrl/Cmd` + `F` / `H` | Find / find & replace |
